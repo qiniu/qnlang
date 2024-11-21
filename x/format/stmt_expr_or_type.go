@@ -166,8 +166,8 @@ func formatSliceExpr(ctx *formatCtx, v *ast.SliceExpr) {
 }
 
 func formatCallExpr(ctx *formatCtx, v *ast.CallExpr) {
-	formatExpr(ctx, v.Fun, &v.Fun)
 	fncallStartingLowerCase(v)
+	formatExpr(ctx, v.Fun, &v.Fun)
 	formatExprs(ctx, v.Args)
 }
 
@@ -175,6 +175,10 @@ func formatSelectorExpr(ctx *formatCtx, v *ast.SelectorExpr, ref *ast.Expr) {
 	switch x := v.X.(type) {
 	case *ast.Ident:
 		if _, o := ctx.scope.LookupParent(x.Name, token.NoPos); o != nil {
+			break
+		}
+		if ctx.classMode && (x.Name == ctx.funcRecv || x.Name == ctx.classPkg) {
+			*ref = v.Sel
 			break
 		}
 		if imp, ok := ctx.imports[x.Name]; ok {
@@ -197,8 +201,25 @@ func formatBlockStmt(ctx *formatCtx, stmt *ast.BlockStmt) {
 	}
 }
 
+func isClassSched(ctx *formatCtx, stmt ast.Stmt) bool {
+	if expr, ok := stmt.(*ast.ExprStmt); ok {
+		if v, ok := expr.X.(*ast.CallExpr); ok {
+			if sel, ok := v.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Sched" {
+				if ident, ok := sel.X.(*ast.Ident); ok && ident.Name == ctx.classPkg {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 func formatStmts(ctx *formatCtx, stmts []ast.Stmt) {
-	for _, stmt := range stmts {
+	for i, stmt := range stmts {
+		if ctx.classMode && isClassSched(ctx, stmt) {
+			stmts[i] = &ast.EmptyStmt{}
+			continue
+		}
 		formatStmt(ctx, stmt)
 	}
 }
@@ -255,6 +276,13 @@ func formatStmt(ctx *formatCtx, stmt ast.Stmt) {
 func formatExprStmt(ctx *formatCtx, v *ast.ExprStmt) {
 	switch x := v.X.(type) {
 	case *ast.CallExpr:
+		if ctx.classMode {
+			if sel, ok := x.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Sched" {
+				if ident, ok := sel.X.(*ast.Ident); ok && ident.Name == ctx.classPkg {
+					return
+				}
+			}
+		}
 		commandStyleFirst(x)
 	}
 	formatExpr(ctx, v.X, &v.X)
